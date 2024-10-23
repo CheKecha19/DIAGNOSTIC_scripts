@@ -1,0 +1,199 @@
+# --- Функция для записи данных в файл с обработкой ошибок ---
+function Write-ToFile {
+    param (
+        [string]$Text,
+        [string]$FilePath
+    )
+    
+    try {
+        $Text | Out-File -Append -FilePath $FilePath -Encoding UTF8
+    }
+    catch {
+        Write-Host "Ошибка записи в файл: $FilePath. Проверьте права доступа или путь." -ForegroundColor Red
+    }
+}
+
+# --- Выбор пути для сохранения отчета ---
+$defaultFileName = "host_checkup_result.txt"
+$reportFile = Read-Host "Введите путь для сохранения отчета (по умолчанию $defaultFileName)"
+if ([string]::IsNullOrWhiteSpace($reportFile)) {
+    $reportFile = "$([Environment]::GetFolderPath('Desktop'))\$defaultFileName"
+}
+
+# Проверка доступа к файлу
+try {
+    "Проверка записи файла..." | Out-File -FilePath $reportFile -Encoding UTF8
+}
+catch {
+    Write-Host "Ошибка: Не удается записать файл в $reportFile. Проверьте права доступа или укажите другой путь." -ForegroundColor Red
+    return
+}
+
+# --- Список параметров ---
+$parameters = @(
+    "1. Информация о процессоре и памяти",
+    "2. Информация о сетевых интерфейсах и IP-адресах",
+    "3. Список установленных программ",
+    "4. Информация о текущем пользователе из Active Directory",
+    "5. Краткая информация о всех пользователях на хосте",
+    "6. Информация о дисках",
+    "7. Открытые порты и сетевые подключения",
+    "8. Маршрутизация",
+    "9. Сетевые адаптеры",
+    "10. Wi-Fi профили",
+    "11. Антивирусная защита и брандмауэр",
+    "12. Статус BitLocker",
+    "13. Информация о политике паролей",
+    "14. Установленные обновления ОС",
+    "15. Конфигурация питания"
+)
+
+# --- Выбор параметров для сбора ---
+Write-Host "Выберите параметры для проверки, введя номера через пробел:"
+$parameters | ForEach-Object { Write-Host $_ }
+Write-Host "0. Выбрать все параметры"
+$selection = Read-Host "Введите ваш выбор (например, 1 2 3)"
+
+# Разбиваем выбор пользователя через пробел
+$selectedOptions = $selection.Split(" ").Trim()
+
+# Если пользователь ввел 0, выбираем все параметры
+if ($selectedOptions -contains "0") {
+    $selectedOptions = 1..$parameters.Count
+}
+
+# Общее количество шагов
+$totalSteps = $selectedOptions.Count
+$currentStep = 0
+
+# --- Выполнение выбранных параметров с прогресс-баром ---
+foreach ($option in $selectedOptions) {
+    $currentStep++
+    $percentComplete = [math]::Round(($currentStep / $totalSteps) * 100)
+    
+    Write-Progress -Activity "Сбор данных" -Status "$percentComplete% завершено" -PercentComplete $percentComplete
+
+    switch ($option) {
+        # 1. Информация о процессоре и памяти
+        "1" {
+            Write-Host "Сбор информации о процессоре и памяти..."
+            $cpuInfo = Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors
+            $memoryInfo = Get-WmiObject -Class Win32_PhysicalMemory | Select-Object Capacity
+            Write-ToFile "--- Информация о процессоре и памяти ---" $reportFile
+            Write-ToFile ($cpuInfo | Out-String) $reportFile
+            Write-ToFile ($memoryInfo | Out-String) $reportFile
+        }
+        # 2. Информация о сетевых интерфейсах и IP-адресах
+        "2" {
+            Write-Host "Сбор информации о сетевых интерфейсах и IP-адресах..."
+            $netInfo = Get-NetIPConfiguration
+            Write-ToFile "--- Информация о сетевых интерфейсах и IP-адресах ---" $reportFile
+            Write-ToFile ($netInfo | Out-String) $reportFile
+        }
+        # 3. Список установленных программ
+        "3" {
+            Write-Host "Сбор информации о списке установленных программ..."
+            $installedPrograms = Get-WmiObject -Class Win32_Product | Select-Object Name, Version
+            Write-ToFile "--- Список установленных программ ---" $reportFile
+            Write-ToFile ($installedPrograms | Out-String) $reportFile
+        }
+        # 4. Информация о текущем пользователе из AD
+        "4" {
+            Write-Host "Сбор информации о текущем пользователе из AD..."
+            if (Get-Command -Name Get-ADUser -ErrorAction SilentlyContinue) {
+                $userInfo = Get-ADUser -Identity $env:USERNAME -Properties EmailAddress, DisplayName, MemberOf | 
+                            Select-Object SamAccountName, EmailAddress, DisplayName, MemberOf
+                Write-ToFile "--- Информация о текущем пользователе из AD ---" $reportFile
+                Write-ToFile ($userInfo | Out-String) $reportFile
+            } else {
+                Write-ToFile "Active Directory не доступен на этом хосте" $reportFile
+            }
+        }
+        # 5. Краткая информация о всех пользователях на хосте
+        "5" {
+            Write-Host "Сбор краткой информации о всех пользователях на хосте..."
+            $usersInfo = Get-WmiObject -Class Win32_UserAccount | Select-Object Name, FullName, Disabled
+            Write-ToFile "--- Краткая информация о всех пользователях на хосте ---" $reportFile
+            Write-ToFile ($usersInfo | Out-String) $reportFile
+        }
+        # 6. Информация о дисках
+        "6" {
+            Write-Host "Сбор информации о дисках..."
+            $diskInfo = Get-PhysicalDisk
+            $volumeInfo = Get-Volume
+            Write-ToFile "--- Информация о дисках ---" $reportFile
+            Write-ToFile ($diskInfo | Out-String) $reportFile
+            Write-ToFile "--- Информация о разделах дисков ---" $reportFile
+            Write-ToFile ($volumeInfo | Out-String) $reportFile
+        }
+        # 7. Открытые порты и сетевые подключения
+        "7" {
+            Write-Host "Сбор информации о сетевых подключениях..."
+            $tcpConnections = Get-NetTCPConnection
+            Write-ToFile "--- Открытые порты и сетевые подключения ---" $reportFile
+            Write-ToFile ($tcpConnections | Out-String) $reportFile
+        }
+        # 8. Маршрутизация
+        "8" {
+            Write-Host "Сбор информации о маршрутизации..."
+            $routeInfo = Get-NetRoute
+            Write-ToFile "--- Маршрутизация ---" $reportFile
+            Write-ToFile ($routeInfo | Out-String) $reportFile
+        }
+        # 9. Сетевые адаптеры
+        "9" {
+            Write-Host "Сбор информации о сетевых адаптерах..."
+            $adaptersInfo = Get-NetAdapter
+            Write-ToFile "--- Сетевые адаптеры ---" $reportFile
+            Write-ToFile ($adaptersInfo | Out-String) $reportFile
+        }
+        # 10. Wi-Fi профили
+        "10" {
+            Write-Host "Сбор информации о Wi-Fi профилях..."
+            $wifiProfiles = Get-WmiObject -Namespace root\CIMv2 -Class MSNdis_80211_ServiceSetIdentifier
+            Write-ToFile "--- Wi-Fi профили ---" $reportFile
+            Write-ToFile ($wifiProfiles | Out-String) $reportFile
+        }
+        # 11. Антивирусная защита и брандмауэр
+        "11" {
+            Write-Host "Сбор информации об антивирусной защите и брандмауэре..."
+            $antivirusInfo = Get-WmiObject -Namespace "root\SecurityCenter2" -Class AntiVirusProduct
+            $firewallInfo = Get-NetFirewallProfile
+            Write-ToFile "--- Антивирусная защита ---" $reportFile
+            Write-ToFile ($antivirusInfo | Out-String) $reportFile
+            Write-ToFile "--- Брандмауэр ---" $reportFile
+            Write-ToFile ($firewallInfo | Out-String) $reportFile
+        }
+        # 12. Статус BitLocker
+        "12" {
+            Write-Host "Сбор информации о статусе BitLocker..."
+            $bitLockerInfo = Get-BitLockerVolume
+            Write-ToFile "--- Статус BitLocker ---" $reportFile
+            Write-ToFile ($bitLockerInfo | Out-String) $reportFile
+        }
+        # 13. Информация о политике паролей
+        "13" {
+            Write-Host "Сбор информации о политике паролей..."
+            $passwordPolicy = net accounts
+            Write-ToFile "--- Политика паролей ---" $reportFile
+            Write-ToFile ($passwordPolicy | Out-String) $reportFile
+        }
+        # 14. Установленные обновления ОС
+        "14" {
+            Write-Host "Сбор информации об установленных обновлениях ОС..."
+            $hotFixes = Get-HotFix
+            Write-ToFile "--- Установленные обновления ОС ---" $reportFile
+            Write-ToFile ($hotFixes | Out-String) $reportFile
+        }
+        # 15. Конфигурация питания
+        "15" {
+            Write-Host "Сбор информации о конфигурации питания..."
+            $powerConfig = powercfg /L
+            Write-ToFile "--- Конфигурация питания ---" $reportFile
+            Write-ToFile ($powerConfig | Out-String) $reportFile
+        }
+    }
+}
+
+Write-Progress -Activity "Сбор данных завершен" -Status "100% завершено" -PercentComplete 100
+Write-Host "Сбор данных завершен. Отчет сохранен в $reportFile"
