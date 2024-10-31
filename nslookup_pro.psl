@@ -1,0 +1,21 @@
+# Определяем путь к рабочему столу текущего пользователя
+$desktopPath = "$env:USERPROFILE\Desktop"
+
+# Задаем пути к файлам
+$inputFilePath = "$desktopPath\nslookup.txt"
+$outputFilePath = "$desktopPath\nslookup_results.txt"
+
+# Очищаем или создаем выходной файл
+Clear-Content -Path $outputFilePath -ErrorAction SilentlyContinue
+
+# Читаем IP-адреса из входного файла
+$ipAddresses = Get-Content -Path $inputFilePath
+
+# Выполняем nslookup для каждого IP и записываем результат в выходной файл
+foreach ($ip in $ipAddresses) {
+    $result = nslookup $ip
+    # Записываем IP и результат в выходной файл
+    Add-Content -Path $outputFilePath -Value "IP: $ip`n$result`n"
+}
+
+Write-Output "Nslookup завершен. Результаты сохранены в $outputFilePath."
